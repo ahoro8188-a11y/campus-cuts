@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Book a Haircut</title>
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#14110f">
+<style>
+:root{--bg:#14110f;--card:#1f1a17;--ink:#f4ede4;--mut:#9a8f84;--gold:#d4a24c;--ok:#4caf7d;--bad:#e5645a;--ln:#3a322c;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px system-ui,sans-serif;padding:16px 16px 60px}
+main{max-width:480px;margin:auto}h1{font-size:24px;margin:6px 0}h2{font-size:13px;color:var(--mut);margin:22px 0 8px;text-transform:uppercase;letter-spacing:.06em}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.sp{justify-content:space-between}
+.chip,.s{padding:10px 14px;border-radius:12px;background:var(--card);border:1px solid var(--ln);color:var(--ink);font:inherit}
+.chip.on{border-color:var(--gold);background:#2d2417;color:var(--gold)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.s{padding:12px 4px;font-size:14px}
+.s.x{opacity:.3;text-decoration:line-through}.s.on{background:var(--gold);color:#14110f;border-color:var(--gold)}
+input,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--ln);background:var(--card);color:var(--ink);font:inherit;margin-bottom:8px}
+.btn{width:100%;padding:14px;border:0;border-radius:12px;background:var(--gold);color:#14110f;font:inherit;font-weight:700}
+.btn:disabled{opacity:.6}.card{background:var(--card);border-radius:14px;padding:12px;margin-bottom:8px;border:1px solid var(--ln)}
+.b{padding:8px 12px;border-radius:8px;border:0;font:inherit;font-size:14px;margin:6px 6px 0 0;background:var(--ln);color:var(--ink)}
+.t{color:var(--mut);font-size:14px}.ok{color:var(--ok)}.bad{color:var(--bad)}a{color:var(--gold)}
+</style></head><body><main id="app"></main>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+const API="https://campus-cuts-api.ahoro8188.workers.dev",DB="https://campus-cuts-default-rtdb.asia-southeast1.firebasedatabase.app";
+const $=s=>document.querySelector(s),pad=n=>String(n).padStart(2,"0"),esc=s=>String(s??"").replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
+const dk=n=>{const d=new Date();d.setDate(d.getDate()+n);return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())};
+const mins=k=>+k.slice(0,2)*60+ +k.slice(2),key=m=>pad(Math.floor(m/60))+pad(m%60);
+const fmt=k=>{const h=+k.slice(0,2);return(h%12||12)+":"+k.slice(2)+(h<12?" AM":" PM")};
+const lab=(d,n)=>n===0?"Today":n===1?"Tomorrow":new Date(d+"T00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"});
+const get=async p=>(await fetch(`${DB}/${p}.json`,{cache:"no-store"})).json();
+const post=(p,b)=>fetch(API+p,{method:"POST",body:JSON.stringify(b)}).then(r=>r.json());
+let ST={name:"Campus Cuts",open:11,close:19,adv:30,days:3,svc:[{n:"Haircut",p:100,d:1},{n:"Beard",p:50,d:1},{n:"Haircut + Beard",p:140,d:2}]};
+const slotsOf=()=>{const a=[];for(let m=ST.open*60;m<ST.close*60;m+=30)a.push(key(m));return a};
+const taken=v=>v&&!(v[0]=="h"&&Date.now()-v.slice(1)>3e5);
+async function loadST(){try{const s=await get("pub/settings");if(s)ST={...ST,...s}}catch(e){}document.title=ST.name}
+
+/* ---------- STUDENT ---------- */
+let sv=0,day=0,pick=null,pub={};
+async function stu(){
+  await loadST();
+  $("#app").innerHTML=`<h1>✂️ ${esc(ST.name)}</h1><div class=t id=nx></div><h2>Service</h2><div class=row id=sv></div><h2>Day</h2><div class=row id=dy></div><h2>Pick a time</h2><div class=grid id=gr></div><div id=fm></div>`;
+  chips();grid();setInterval(grid,15000);
+}
+function chips(){
+  $("#sv").innerHTML=ST.svc.map((x,i)=>`<button class="chip ${i==sv?"on":""}" onclick="sv=${i};pick=null;$('#fm').innerHTML='';chips();grid()">${esc(x.n)} · ₹${x.p}</button>`).join("");
+  $("#dy").innerHTML=Array.from({length:ST.days},(_,i)=>`<button class="chip ${i==day?"on":""}" onclick="day=${i};pick=null;$('#fm').innerHTML='';chips();grid()">${lab(dk(i),i)}</button>`).join("");
+}
+async function grid(){
+  const d=dk(day);try{pub=(await get("pub/"+d))||{}}catch(e){return}
+  const D=ST.svc[sv].d,A=slotsOf(),n=new Date(),nm=n.getHours()*60+n.getMinutes();
+  const ok=i=>{for(let j=0;j<D;j++){const k=A[i+j];if(!k||taken(pub[k]))return 0}return day?1:mins(A[i])>nm};
+  if(pick&&!ok(A.indexOf(pick))){pick=null;$("#fm").innerHTML=""}
+  const nf=A.findIndex((_,i)=>ok(i));
+  $("#nx").textContent=nf<0?"No free slots this day":"Next free: "+fmt(A[nf]);
+  $("#gr").innerHTML=A.map((k,i)=>`<button class="s ${ok(i)?"":"x"} ${pick==k?"on":""}" ${ok(i)?`onclick="sel('${k}')"`:"disabled"}>${fmt(k)}</button>`).join("");
+}
+function sel(k){
+  pick=k;const n=$("#nm")?.value||"",p=$("#ph")?.value||"";
+  $("#fm").innerHTML=`<h2>Your details</h2><input id=nm placeholder="Your name" value="${esc(n)}"><input id=ph type=tel inputmode=numeric placeholder="Phone number" maxlength=10 value="${esc(p)}"><button class=btn id=pb onclick=pay()>Pay ₹${ST.adv} to book ${fmt(k)}</button><p class=t>₹${ST.adv} advance is adjusted in your bill. If you don't turn up, it's not refunded.</p>`;
+  grid();$("#fm").scrollIntoView({behavior:"smooth"});
+}
+async function pay(){
+  const n=$("#nm").value.trim(),p=$("#ph").value.trim();
+  if(n.length<2||!/^\d{10}$/.test(p))return alert("Please enter your name and a 10-digit phone number");
+  const b=$("#pb");b.disabled=true;b.textContent="Please wait…";
+  const A=slotsOf(),D=ST.svc[sv].d,slots=A.slice(A.indexOf(pick),A.indexOf(pick)+D),d=dk(day),at=pick;
+  let o;try{o=await post("/order",{d,slots,sv,n,p})}catch(e){o={err:"No internet. Try again."}}
+  if(!o.id){alert(o.err||"Something went wrong");b.disabled=false;b.textContent="Try again";return grid()}
+  new Razorpay({key:o.key,amount:o.amount,currency:"INR",order_id:o.id,name:ST.name,description:ST.svc[sv].n+" · "+fmt(at),prefill:{name:n,contact:p},theme:{color:"#d4a24c"},
+    handler:async r=>{let v={};try{v=await post("/verify",{d,s:slots[0],...r})}catch(e){}
+      $("#app").innerHTML=v.ok?`<h1 class=ok>✓ Booked!</h1><div class=card><b>${esc(ST.svc[sv].n)}</b><br>${lab(d,day)}, ${fmt(at)}<br><span class=t>Name: ${esc(n)} · Paid ₹${ST.adv}</span></div><p class=t>Please arrive 5 minutes early. Take a screenshot of this screen.</p>`:`<h1 class=bad>Check with the barber</h1><p>Your payment went through but we couldn't confirm the slot. Show your payment screenshot to the barber.</p>`},
+    modal:{ondismiss:()=>{b.disabled=false;b.textContent="Pay ₹"+ST.adv}}}).open();
+}
+
+/* ---------- BARBER ---------- */
+let pin=localStorage.pin||"",bd=0,tab="day",T,FR=[];
+async function adm(a,x={}){const r=await post("/admin",{pin,action:a,...x});if(r.err=="pin"){localStorage.removeItem("pin");pin="";bar();throw 0}return r}
+async function bar(){
+  clearInterval(T);
+  if(!pin){$("#app").innerHTML=`<h1>Barber login</h1><input id=pn type=password inputmode=numeric placeholder="Enter PIN"><button class=btn onclick="pin=$('#pn').value;localStorage.pin=pin;bar()">Open</button>`;return}
+  await loadST();show();T=setInterval(()=>tab=="day"&&show(),15000);
+}
+function head(){return`<h1>${esc(ST.name)}</h1><div class=row><button class="chip ${tab=="day"?"on":""}" onclick="tab='day';show()">Bookings</button><button class="chip ${tab=="set"?"on":""}" onclick="tab='set';show()">Settings</button></div>`}
+async function show(){
+  if(tab=="set")return settings();
+  const d=dk(bd),r=await adm("day",{d}),pr=r.priv||{},pu=r.pub||{},A=slotsOf();let h="",inc=0,ns=0;FR=[];
+  for(const k of A){const b=pr[k],v=pu[k];
+    if(b){if(b.st=="done")inc+=b.pr;if(b.st=="noshow")ns++;
+      const act=b.st=="paid"?`<button class=b onclick="act('${d}','${k}','done')">✓ Done</button><button class=b onclick="act('${d}','${k}','noshow')">No-show</button>`:"";
+      h+=`<div class=card><div class="row sp"><b>${fmt(k)} · ${esc(b.n)}</b><span class="t ${b.st=="paid"?"ok":b.st=="noshow"?"bad":""}">${{hold:"paying…",paid:"paid",done:"done",noshow:"no-show"}[b.st]}</span></div><div class=t>${esc(b.svc)} · ₹${b.pr}${b.ph?` · <a href="tel:${esc(b.ph)}">${esc(b.ph)}</a>`:""}</div>${act}<button class=b onclick="act('${d}','${k}','x')">Cancel</button></div>`}
+    else if(v=="x")h+=`<div class="card row sp"><span class=t>${fmt(k)} · blocked</span><button class=b onclick="bl('${k}',0)">Unblock</button></div>`;
+    else if(v&&v[0]=="b")continue;
+    else if(v&&v[0]=="h"&&Date.now()-v.slice(1)<3e5)h+=`<div class="card t">${fmt(k)} · payment in progress…</div>`;
+    else{FR.push(k);h+=`<div class="card row sp"><span>${fmt(k)} · free</span><span><button class=b onclick="wk('${k}')">Walk-in</button><button class=b onclick="bl('${k}',1)">Block</button></span></div>`}}
+  $("#app").innerHTML=head()+`<h2>Day</h2><div class=row>${[0,1,2].map(i=>`<button class="chip ${i==bd?"on":""}" onclick="bd=${i};show()">${lab(dk(i),i)}</button>`).join("")}</div><div class="card" style="margin-top:14px"><b>₹${inc}</b> earned · ${ns} no-show${ns==1?"":"s"}</div>${h}<button class="b" onclick="closeDay()">Close this whole day</button>`;
+}
+async function act(d,s,st){if(st=="x"&&!confirm("Cancel this booking? (No refund is made automatically)"))return;await adm("st",{d,s,st});show()}
+async function bl(s,on){await adm("block",{d:dk(bd),s,on});show()}
+async function closeDay(){if(confirm("Block all free slots for this day?")){await adm("close",{d:dk(bd),slots:FR});show()}}
+async function wk(s){
+  const i=+prompt("Which service?\n"+ST.svc.map((x,j)=>(j+1)+". "+x.n).join("\n"))-1;if(!(i>=0&&i<ST.svc.length))return;
+  const A=slotsOf(),at=A.indexOf(s),sl=A.slice(at,at+ST.svc[i].d);
+  if(sl.length<ST.svc[i].d||sl.some(k=>!FR.includes(k)))return alert("Not enough free time here");
+  await adm("walkin",{d:dk(bd),sv:i,slots:sl});show();
+}
+function settings(){
+  $("#app").innerHTML=head()+`<h2>Shop name</h2><input id=sn value="${esc(ST.name)}"><h2>Opens at (hour, 24h) / Closes at</h2><div class=row><input id=so type=number style="width:48%" value=${ST.open}><input id=sc type=number style="width:48%" value=${ST.close}></div><h2>Advance amount (₹)</h2><input id=sa type=number value=${ST.adv}><h2>Services</h2><p class=t>One per line: name, price, time (1 = 30 min, 2 = 1 hour)</p><textarea id=ss rows=5>${ST.svc.map(x=>`${esc(x.n)}, ${x.p}, ${x.d}`).join("\n")}</textarea><button class=btn onclick=save()>Save settings</button><h2>Student link</h2><p class=t>${esc(location.origin+location.pathname)}</p>`;
+}
+async function save(){
+  const svc=$("#ss").value.split("\n").map(l=>l.split(",").map(x=>x.trim())).filter(a=>a[0]&&+a[1]>0).map(a=>({n:a[0],p:+a[1],d:+a[2]||1}));
+  if(!svc.length||+$("#so").value>=+$("#sc").value||+$("#sa").value<1)return alert("Please check the details");
+  await adm("settings",{S:{name:$("#sn").value,open:+$("#so").value,close:+$("#sc").value,adv:+$("#sa").value,svc}});
+  await loadST();alert("Saved ✓");
+}
+addEventListener("hashchange",()=>location.reload());
+location.hash=="#barber"?bar():stu();
+</script></body></html>
